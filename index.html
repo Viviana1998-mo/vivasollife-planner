@@ -73,6 +73,13 @@
   .btn-add:hover{background:rgba(184,134,46,0.24);}
 
   .totalbar{font-family:var(--font-mono); font-size:14px; display:flex; justify-content:flex-end; gap:8px; padding:12px 4px 0; color:var(--ink-soft);}
+  .pb-box{background:var(--paper); border:1.5px solid var(--paper-line); border-radius:6px; padding:6px 16px; margin:16px 0 4px;}
+  .pb-row{display:flex; justify-content:space-between; align-items:center; padding:8px 0; font-family:var(--font-mono); font-size:13px;}
+  .pb-row + .pb-row{border-top:1px solid var(--paper-line);}
+  .pb-label{color:var(--ink-soft);}
+  .pb-amt{font-weight:600;}
+  .pb-amt.negative{color:var(--rust);}
+  .pb-warn{font-size:10px; color:var(--rust); margin-left:8px; font-family:var(--font-body); text-transform:uppercase; letter-spacing:0.5px; border:1px solid var(--rust); border-radius:3px; padding:2px 6px; vertical-align:middle;}
   .totalbar strong{color:var(--ink); font-size:16px;}
 
   .stepnav{display:flex; justify-content:space-between; margin-top:22px;}
@@ -95,13 +102,21 @@
 
   .flowbar{display:flex; height:38px; border:2px solid var(--ink); border-radius:6px; overflow:hidden; margin-bottom:10px;}
   .seg{height:100%;} .seg-rust{background:var(--rust);} .seg-teal{background:var(--teal);} .seg-gold{background:var(--gold);}
-  .flowlegend{display:flex; gap:20px; flex-wrap:wrap; font-family:var(--font-mono); font-size:12.5px; margin-bottom:6px;}
+  .pie-wrap{display:flex; align-items:center; gap:28px; flex-wrap:wrap; margin-bottom:20px;}
+  .piechart{flex-shrink:0;}
+  .summary-box{border:1.5px solid var(--ink); border-radius:6px; overflow:hidden; margin:4px 0 26px;}
+  .pdf-block{background:var(--cloud);}
+  .sum-row{display:flex; justify-content:space-between; gap:12px; padding:10px 16px; font-size:13px; border-bottom:1px solid var(--paper-line); background:var(--cloud);}
+  .sum-row:last-child{border-bottom:none;}
+  .sum-row.highlight{background:var(--gold-soft); font-weight:700;}
+  .sum-val{font-family:var(--font-mono); font-weight:600; white-space:nowrap;}
+  .flowlegend{display:flex; flex-direction:column; gap:10px; font-family:var(--font-mono); font-size:13px;}
   .dot{display:inline-block; width:10px; height:10px; border-radius:50%; margin-right:6px;}
   .dot-rust{background:var(--rust);} .dot-teal{background:var(--teal);} .dot-gold{background:var(--gold);}
   .deficit{background:var(--rust-soft); border:2px solid var(--rust); padding:16px; border-radius:8px; margin-bottom:20px;}
 
   .table-scroll{overflow-x:auto; margin-bottom:26px;}
-  table.ledger{width:100%; border-collapse:collapse; font-family:var(--font-mono); font-size:13px; min-width:520px;}
+  table.ledger{width:100%; border-collapse:separate; border-spacing:0; font-family:var(--font-mono); font-size:13px; min-width:520px;}
   .ledger th{text-align:right; border-bottom:2px solid var(--ink); padding:8px 10px; font-size:11px; text-transform:uppercase; letter-spacing:0.5px;}
   .ledger th:first-child, .ledger th:nth-child(2){text-align:left;}
   .ledger td{padding:8px 10px; border-bottom:1px solid var(--paper-line);}
@@ -298,6 +313,17 @@
   function sumExpenses(){ return state.expenses.reduce(function(s,r){ return s + numOr0(r.amount); }, 0); }
   function sumGoalsRequested(){ return state.goals.reduce(function(s,r){ return s + numOr0(r.amount); }, 0); }
 
+  function polarToCartesian(cx, cy, r, angleDeg){
+    var rad = (angleDeg - 90) * Math.PI / 180;
+    return { x: cx + r * Math.cos(rad), y: cy + r * Math.sin(rad) };
+  }
+  function pieArcPath(cx, cy, r, startAngle, endAngle){
+    var start = polarToCartesian(cx, cy, r, startAngle);
+    var end = polarToCartesian(cx, cy, r, endAngle);
+    var largeArcFlag = (endAngle - startAngle) > 180 ? 1 : 0;
+    return ['M', cx, cy, 'L', start.x.toFixed(2), start.y.toFixed(2), 'A', r, r, 0, largeArcFlag, 1, end.x.toFixed(2), end.y.toFixed(2), 'Z'].join(' ');
+  }
+
   function computeDashboard(){
     var totalIncome = sumIncome();
     var totalExpenses = sumExpenses();
@@ -374,6 +400,31 @@
       '<div class="totalbar">Total income&nbsp;<strong id="incomeTotal">'+fmtMoney(sumIncome())+'</strong></div>' +
       '<div class="stepnav"><span></span><button class="btn btn-primary" data-action="goto" data-step="expenses">Next: Expenses →</button></div></section>';
   }
+  function computePaycheckBalances(includeGoals){
+    return state.income.map(function(inc){
+      var expenseAssigned = state.expenses.filter(function(e){ return e.paycheckId === inc.id; }).reduce(function(s,e){ return s + numOr0(e.amount); }, 0);
+      var goalAssigned = includeGoals ? state.goals.filter(function(g){ return g.paycheckId === inc.id; }).reduce(function(s,g){ return s + numOr0(g.amount); }, 0) : 0;
+      var amt = numOr0(inc.amount);
+      var label = fmtDate(inc.date) + (inc.source ? ' — ' + inc.source : '');
+      return { label: label, balance: amt - expenseAssigned - goalAssigned };
+    });
+  }
+
+  function renderPaycheckBalanceRows(includeGoals){
+    var rows = computePaycheckBalances(includeGoals);
+    if(rows.length === 0) return '';
+    return rows.map(function(r){
+      var neg = r.balance < -0.004;
+      return '<div class="pb-row"><span class="pb-label">'+escapeHtml(r.label)+' balance</span><span class="pb-amt'+(neg?' negative':'')+'">'+fmtMoney(r.balance)+(neg?'<span class="pb-warn">Over budget</span>':'')+'</span></div>';
+    }).join('');
+  }
+
+  function refreshPaycheckBalances(){
+    var el = document.getElementById('paycheckBalances');
+    if(!el) return;
+    el.innerHTML = renderPaycheckBalanceRows(currentStep === 'goals');
+  }
+
   function renderExpensesStep(){
     if(state.income.length===0){
       stepContainer.innerHTML = '<section class="step"><h2>No. 02 — Expenses</h2><div class="empty">Add at least one paycheck on the Income page first.</div><div class="stepnav"><button class="btn btn-outline" data-action="goto" data-step="income">← Back to Income</button><span></span></div></section>';
@@ -386,6 +437,7 @@
       (rows.length ? '<div class="table-wrap"><div class="row row-expense row-head"><span>Category</span><span>Amount</span><span>Paid from paycheck</span><span></span></div>'+rows.map(expenseRowHtml).join('')+'</div>'
         : '<div class="empty">No expenses yet — add your first bill below.</div>') +
       '<button class="btn btn-add" data-action="add-expense">+ Add expense</button>' +
+      '<div class="pb-box" id="paycheckBalances">'+renderPaycheckBalanceRows(false)+'</div>' +
       '<div class="totalbar">Total expenses&nbsp;<strong id="expensesTotal">'+fmtMoney(sumExpenses())+'</strong></div>' +
       '<div class="stepnav"><button class="btn btn-outline" data-action="goto" data-step="income">← Back</button><button class="btn btn-primary" data-action="goto" data-step="goals">Next: Goals →</button></div></section>';
   }
@@ -401,6 +453,7 @@
       (rows.length ? '<div class="table-wrap"><div class="row row-goal row-head"><span>Goal name</span><span>Requested</span><span>Funded from paycheck</span><span></span></div>'+rows.map(goalRowHtml).join('')+'</div>'
         : '<div class="empty">No goals yet — add the first one below.</div>') +
       '<button class="btn btn-add" data-action="add-goal">+ Add goal</button>' +
+      '<div class="pb-box" id="paycheckBalances">'+renderPaycheckBalanceRows(true)+'</div>' +
       '<div class="totalbar">Total requested&nbsp;<strong id="goalsTotal">'+fmtMoney(sumGoalsRequested())+'</strong></div>' +
       '<div class="stepnav"><button class="btn btn-outline" data-action="goto" data-step="expenses">← Back</button><button class="btn btn-primary" data-action="goto" data-step="dashboard">See my Dashboard →</button></div></section>';
   }
@@ -414,13 +467,33 @@
     if(d.balance < 0){
       flowHtml = '<div class="deficit">Your expenses run <strong>'+fmtMoney(Math.abs(d.balance))+'</strong> higher than your income this month.</div>';
     } else {
-      var flowTotal = Math.max(d.totalIncome, 1);
-      var expPct=(d.totalExpenses/flowTotal*100).toFixed(3), goalPct=(d.goalsAllocatedTotal/flowTotal*100).toFixed(3), freePct=(Math.max(d.guiltFree,0)/flowTotal*100).toFixed(3);
-      flowHtml = '<div class="flowbar">' +
-        (d.totalExpenses>0?'<div class="seg seg-rust" style="width:'+expPct+'%"></div>':'') +
-        (d.goalsAllocatedTotal>0?'<div class="seg seg-teal" style="width:'+goalPct+'%"></div>':'') +
-        (d.guiltFree>0?'<div class="seg seg-gold" style="width:'+freePct+'%"></div>':'') + '</div>' +
-        '<div class="flowlegend"><span><i class="dot dot-rust"></i>Necessary — '+fmtMoney(d.totalExpenses)+'</span><span><i class="dot dot-teal"></i>Goals — '+fmtMoney(d.goalsAllocatedTotal)+'</span><span><i class="dot dot-gold"></i>Guilt-free — '+fmtMoney(d.guiltFree)+'</span></div>';
+      var segs = [];
+      if(d.totalExpenses>0) segs.push({amt:d.totalExpenses, cls:'rust', label:'Necessary'});
+      if(d.goalsAllocatedTotal>0) segs.push({amt:d.goalsAllocatedTotal, cls:'teal', label:'Goals'});
+      if(d.guiltFree>0) segs.push({amt:d.guiltFree, cls:'gold', label:'Guilt-free'});
+      var pieTotal = segs.reduce(function(s,x){ return s+x.amt; }, 0) || 1;
+
+      var svgInner;
+      if(segs.length <= 1){
+        var only = segs[0];
+        svgInner = '<circle cx="60" cy="60" r="56" fill="var(--'+(only?only.cls:'paper-line')+')" stroke="var(--ink)" stroke-width="2"/>';
+      } else {
+        var cum = 0;
+        svgInner = segs.map(function(seg){
+          var pct = seg.amt/pieTotal*100;
+          var angle = pct/100*360;
+          var arcD = pieArcPath(60,60,56,cum,cum+angle);
+          cum += angle;
+          return '<path d="'+arcD+'" fill="var(--'+seg.cls+')" stroke="var(--cloud)" stroke-width="1.5"/>';
+        }).join('') + '<circle cx="60" cy="60" r="56" fill="none" stroke="var(--ink)" stroke-width="2"/>';
+      }
+
+      var legendHtml = segs.map(function(seg){
+        var pct = Math.round(seg.amt/pieTotal*100);
+        return '<span><i class="dot dot-'+seg.cls+'"></i>'+seg.label+' — '+fmtMoney(seg.amt)+' <strong>('+pct+'%)</strong></span>';
+      }).join('');
+
+      flowHtml = '<div class="pie-wrap"><svg class="piechart" viewBox="0 0 120 120" width="150" height="150">'+svgInner+'</svg><div class="flowlegend">'+legendHtml+'</div></div>';
     }
     var paydayRowsHtml = d.paydayRows.map(function(r){
       return '<tr class="'+(r.leftover<0?'row-warn':'')+'"><td>'+fmtDate(r.date)+'</td><td>'+(escapeHtml(r.source)||'—')+'</td><td class="num">'+fmtMoney(r.amount)+'</td><td class="num">'+fmtMoney(r.expensesDue)+'</td><td class="num">'+fmtMoney(r.goalsFunded)+'</td><td class="num">'+fmtMoney(r.leftover)+'</td></tr>';
@@ -428,22 +501,47 @@
     var goalRowsHtml = d.goalRows.length ? d.goalRows.map(function(g){
       return '<tr><td>'+(escapeHtml(g.name)||'—')+'</td><td class="num">'+fmtMoney(g.monthly)+'</td><td class="num">'+fmtMoney(g.sixMonths)+'</td><td class="num">'+fmtMoney(g.oneYear)+'</td></tr>';
     }).join('') : '<tr><td colspan="4" class="empty-cell">Add a goal to see its projection.</td></tr>';
+    var expenseSummaryHtml = state.expenses.length ? state.expenses.map(function(e){
+      return '<tr><td>'+(escapeHtml(e.category)||'—')+'</td><td class="num">'+fmtMoney(numOr0(e.amount))+'</td></tr>';
+    }).join('') : '<tr><td colspan="2" class="empty-cell">No expenses added yet.</td></tr>';
 
     stepContainer.innerHTML =
       '<section class="step"><div id="dashboard-capture">' +
-        '<h2>No. 04 — Dashboard</h2>' +
-        '<div class="banner banner-'+d.statusType+'"><span class="stamp stamp-'+d.statusType+'">'+d.stampText+'</span><p>'+d.statusMessage+'</p></div>' +
-        '<div class="cards">' +
+        '<div class="pdf-block">' +
+          '<h2>No. 04 — Dashboard</h2>' +
+          '<div class="banner banner-'+d.statusType+'"><span class="stamp stamp-'+d.statusType+'">'+d.stampText+'</span><p>'+d.statusMessage+'</p></div>' +
+        '</div>' +
+        '<div class="pdf-block"><div class="cards">' +
           '<div class="card"><span class="card-label">Total income</span><span class="card-value">'+fmtMoney(d.totalIncome)+'</span></div>' +
           '<div class="card"><span class="card-label">Necessary expenses</span><span class="card-value">'+fmtMoney(d.totalExpenses)+'</span></div>' +
           '<div class="card"><span class="card-label">Goals funded</span><span class="card-value">'+fmtMoney(d.goalsAllocatedTotal)+(d.scaleFactor<1?'<em>'+Math.round(d.scaleFactor*100)+'% of '+fmtMoney(d.goalsRequestedTotal)+' requested</em>':'')+'</span></div>' +
           '<div class="card card-gold"><span class="card-label">Guilt-free leftover</span><span class="card-value">'+fmtMoney(d.guiltFree)+'</span></div>' +
+        '</div></div>' +
+        '<div class="pdf-block"><h3>Where it goes</h3>' + flowHtml + '</div>' +
+        '<div class="pdf-block">' +
+        '<h3>Monthly Summary</h3>' +
+        '<div class="summary-box">' +
+          '<div class="sum-row"><span>Total Income</span><span class="sum-val">'+fmtMoney(d.totalIncome)+'</span></div>' +
+          '<div class="sum-row"><span>Total Necessary Expenses</span><span class="sum-val">'+fmtMoney(d.totalExpenses)+'</span></div>' +
+          '<div class="sum-row highlight"><span>Balance Available for Goals (Income − Expenses)</span><span class="sum-val">'+fmtMoney(d.balance)+'</span></div>' +
+          '<div class="sum-row"><span>Total Requested for Goals</span><span class="sum-val">'+fmtMoney(d.goalsRequestedTotal)+'</span></div>' +
+          '<div class="sum-row"><span>Scale Factor Applied</span><span class="sum-val">'+(d.scaleFactor*100).toFixed(1)+'%</span></div>' +
+          '<div class="sum-row"><span>Total Actually Allocated to Goals</span><span class="sum-val">'+fmtMoney(d.goalsAllocatedTotal)+'</span></div>' +
+          '<div class="sum-row highlight"><span>Guilt-Free Leftover Money</span><span class="sum-val">'+fmtMoney(d.guiltFree)+'</span></div>' +
         '</div>' +
-        '<h3>Where it goes</h3>' + flowHtml +
+        '</div>' +
+        '<div class="pdf-block">' +
         '<h3>Payday allocation schedule</h3>' +
         '<div class="table-scroll"><table class="ledger"><thead><tr><th>Date</th><th>Source</th><th>Income</th><th>Expenses due</th><th>Goals funded</th><th>Guilt-free</th></tr></thead><tbody>'+paydayRowsHtml+'</tbody><tfoot><tr><td colspan="2">Total</td><td class="num">'+fmtMoney(d.totalIncome)+'</td><td class="num">'+fmtMoney(d.totalExpenses)+'</td><td class="num">'+fmtMoney(d.goalsAllocatedTotal)+'</td><td class="num">'+fmtMoney(d.guiltFree)+'</td></tr></tfoot></table></div>' +
+        '</div>' +
+        '<div class="pdf-block">' +
+        '<h3>Expense Summary</h3>' +
+        '<div class="table-scroll"><table class="ledger"><thead><tr><th>Expense</th><th>Amount</th></tr></thead><tbody>'+expenseSummaryHtml+'</tbody><tfoot><tr><td>Total</td><td class="num">'+fmtMoney(d.totalExpenses)+'</td></tr></tfoot></table></div>' +
+        '</div>' +
+        '<div class="pdf-block">' +
         '<h3>If you keep this up</h3><p class="step-help">Assumes the same income, expenses, and goals every month — a projection, not a guarantee.</p>' +
         '<div class="table-scroll"><table class="ledger"><thead><tr><th>Goal</th><th>Monthly</th><th>In 6 months</th><th>In 1 year</th></tr></thead><tbody>'+goalRowsHtml+'</tbody></table></div>' +
+        '</div>' +
       '</div>' +
       '<div class="actionbar"><button class="btn btn-outline" data-action="goto" data-step="income">Edit my numbers</button><button class="btn btn-primary" data-action="download-pdf">Download PDF</button><button class="btn btn-text" data-action="reset-all">Start over</button></div>' +
       '</section>';
@@ -470,8 +568,8 @@
 
   function updateTotals(type){
     if(type==='income'){ var e1=document.getElementById('incomeTotal'); if(e1) e1.textContent=fmtMoney(sumIncome()); }
-    else if(type==='expenses'){ var e2=document.getElementById('expensesTotal'); if(e2) e2.textContent=fmtMoney(sumExpenses()); }
-    else if(type==='goals'){ var e3=document.getElementById('goalsTotal'); if(e3) e3.textContent=fmtMoney(sumGoalsRequested()); }
+    else if(type==='expenses'){ var e2=document.getElementById('expensesTotal'); if(e2) e2.textContent=fmtMoney(sumExpenses()); refreshPaycheckBalances(); }
+    else if(type==='goals'){ var e3=document.getElementById('goalsTotal'); if(e3) e3.textContent=fmtMoney(sumGoalsRequested()); refreshPaycheckBalances(); }
     renderNav();
   }
   function deleteIncomeRow(id){
@@ -523,21 +621,45 @@
   async function downloadPDF(btn){
     var original = btn.textContent; btn.textContent = 'Preparing PDF…'; btn.disabled = true;
     try{
-      var el = document.getElementById('dashboard-capture');
-      var canvas = await html2canvas(el, {scale:2, backgroundColor:'#FFFFFF'});
-      var imgData = canvas.toDataURL('image/png');
+      var container = document.getElementById('dashboard-capture');
+      var blocks = container.querySelectorAll('.pdf-block');
       var jsPDFCtor = window.jspdf.jsPDF;
       var pdf = new jsPDFCtor('p','pt','a4');
-      var pageWidth = pdf.internal.pageSize.getWidth(), pageHeight = pdf.internal.pageSize.getHeight();
-      var imgWidth = pageWidth, imgHeight = canvas.height * imgWidth / canvas.width;
-      var heightLeft = imgHeight, position = 0;
-      pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
-      heightLeft -= pageHeight;
-      while(heightLeft > 0){
-        position = heightLeft - imgHeight; pdf.addPage();
-        pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
-        heightLeft -= pageHeight;
+      var pageWidth = pdf.internal.pageSize.getWidth();
+      var pageHeight = pdf.internal.pageSize.getHeight();
+      var margin = 28;
+      var usableWidth = pageWidth - margin*2;
+      var y = margin;
+
+      for(var i=0;i<blocks.length;i++){
+        var canvas = await html2canvas(blocks[i], {
+          scale:2,
+          backgroundColor:'#FFFFFF',
+          onclone: function(clonedDoc){
+            var scrolls = clonedDoc.querySelectorAll('.table-scroll');
+            for(var j=0;j<scrolls.length;j++){ scrolls[j].style.overflow = 'visible'; }
+          }
+        });
+        var imgData = canvas.toDataURL('image/png');
+        var imgHeight = canvas.height * usableWidth / canvas.width;
+
+        // Start a new page if this block won't fit in the remaining space
+        if(y > margin && (y + imgHeight) > (pageHeight - margin)){
+          pdf.addPage();
+          y = margin;
+        }
+
+        // If a single block is taller than a whole page (rare: very long table),
+        // place it at the top of a fresh page rather than force it into a partial gap.
+        if(imgHeight > (pageHeight - margin*2) && y > margin){
+          pdf.addPage();
+          y = margin;
+        }
+
+        pdf.addImage(imgData, 'PNG', margin, y, usableWidth, imgHeight);
+        y += imgHeight + 16;
       }
+
       pdf.save('vivasollife-money-plan.pdf');
     }catch(err){ console.error('PDF export failed', err); alert('The PDF could not be generated. Please try again.'); }
     finally{ btn.textContent = original; btn.disabled = false; }
