@@ -106,6 +106,13 @@
   .piechart{flex-shrink:0;}
   .summary-box{border:1.5px solid var(--ink); border-radius:6px; overflow:hidden; margin:4px 0 26px;}
   .pdf-block{background:var(--cloud);}
+  .paycheck-detail{border:1.5px solid var(--ink); border-radius:8px; overflow:hidden; margin-bottom:16px; background:var(--cloud);}
+  .pd-head{display:flex; justify-content:space-between; background:var(--ink); color:var(--paper); padding:10px 16px; font-family:var(--font-mono); font-size:13px; font-weight:600;}
+  .pd-section{padding:10px 16px; border-bottom:1px solid var(--paper-line);}
+  .pd-label{display:block; font-family:var(--font-mono); font-size:10px; text-transform:uppercase; letter-spacing:1px; color:var(--ink-soft); margin-bottom:6px;}
+  .pd-item{display:flex; justify-content:space-between; font-size:13px; padding:4px 0;}
+  .pd-item.pd-empty span{color:var(--ink-soft); font-style:italic;}
+  .pd-footline{display:flex; justify-content:space-between; padding:10px 16px; font-family:var(--font-mono); font-weight:700; font-size:13px; background:var(--gold-soft);}
   .sum-row{display:flex; justify-content:space-between; gap:12px; padding:10px 16px; font-size:13px; border-bottom:1px solid var(--paper-line); background:var(--cloud);}
   .sum-row:last-child{border-bottom:none;}
   .sum-row.highlight{background:var(--gold-soft); font-weight:700;}
@@ -342,10 +349,12 @@
     else { statusType='ok'; statusMessage='All your goals are fully funded this month.'; stampText='Funded'; }
 
     var paydayRows = state.income.map(function(inc){
-      var expensesDue = state.expenses.filter(function(e){ return e.paycheckId === inc.id; }).reduce(function(s,e){ return s+numOr0(e.amount); },0);
-      var goalsFunded = state.goals.filter(function(g){ return g.paycheckId === inc.id; }).reduce(function(s,g){ return s+numOr0(g.amount); },0) * scaleFactor;
+      var expenseItems = state.expenses.filter(function(e){ return e.paycheckId === inc.id; }).map(function(e){ return { name: e.category, amount: numOr0(e.amount) }; });
+      var goalItems = state.goals.filter(function(g){ return g.paycheckId === inc.id; }).map(function(g){ return { name: g.name, amount: numOr0(g.amount) * scaleFactor }; });
+      var expensesDue = expenseItems.reduce(function(s,x){ return s+x.amount; },0);
+      var goalsFunded = goalItems.reduce(function(s,x){ return s+x.amount; },0);
       var leftover = numOr0(inc.amount) - expensesDue - goalsFunded;
-      return { date: inc.date, source: inc.source, amount: numOr0(inc.amount), expensesDue: expensesDue, goalsFunded: goalsFunded, leftover: leftover };
+      return { date: inc.date, source: inc.source, amount: numOr0(inc.amount), expensesDue: expensesDue, goalsFunded: goalsFunded, leftover: leftover, expenseItems: expenseItems, goalItems: goalItems };
     });
 
     var goalRows = state.goals.map(function(g){
@@ -505,6 +514,22 @@
       return '<tr><td>'+(escapeHtml(e.category)||'—')+'</td><td class="num">'+fmtMoney(numOr0(e.amount))+'</td></tr>';
     }).join('') : '<tr><td colspan="2" class="empty-cell">No expenses added yet.</td></tr>';
 
+    var paycheckDetailBlocks = d.paydayRows.map(function(r){
+      var expHtml = r.expenseItems.length ? r.expenseItems.map(function(x){
+        return '<div class="pd-item"><span>'+(escapeHtml(x.name)||'Expense')+'</span><span>'+fmtMoney(x.amount)+'</span></div>';
+      }).join('') : '<div class="pd-item pd-empty"><span>— none —</span></div>';
+      var goalHtml = r.goalItems.length ? r.goalItems.map(function(x){
+        return '<div class="pd-item"><span>'+(escapeHtml(x.name)||'Goal')+'</span><span>'+fmtMoney(x.amount)+'</span></div>';
+      }).join('') : '<div class="pd-item pd-empty"><span>— none —</span></div>';
+      var headLabel = fmtDate(r.date) + (r.source ? ' — ' + escapeHtml(r.source) : '');
+      return '<div class="pdf-block"><div class="paycheck-detail">' +
+          '<div class="pd-head"><span class="pd-date">'+headLabel+'</span><span class="pd-amt">'+fmtMoney(r.amount)+'</span></div>' +
+          '<div class="pd-section"><span class="pd-label">Expenses to transfer</span>'+expHtml+'</div>' +
+          '<div class="pd-section"><span class="pd-label">Goals to transfer</span>'+goalHtml+'</div>' +
+          '<div class="pd-footline"><span>Guilt-free — yours to keep</span><span>'+fmtMoney(r.leftover)+'</span></div>' +
+        '</div></div>';
+    }).join('');
+
     stepContainer.innerHTML =
       '<section class="step"><div id="dashboard-capture">' +
         '<div class="pdf-block">' +
@@ -534,6 +559,11 @@
         '<h3>Payday allocation schedule</h3>' +
         '<div class="table-scroll"><table class="ledger"><thead><tr><th>Date</th><th>Source</th><th>Income</th><th>Expenses due</th><th>Goals funded</th><th>Guilt-free</th></tr></thead><tbody>'+paydayRowsHtml+'</tbody><tfoot><tr><td colspan="2">Total</td><td class="num">'+fmtMoney(d.totalIncome)+'</td><td class="num">'+fmtMoney(d.totalExpenses)+'</td><td class="num">'+fmtMoney(d.goalsAllocatedTotal)+'</td><td class="num">'+fmtMoney(d.guiltFree)+'</td></tr></tfoot></table></div>' +
         '</div>' +
+        '<div class="pdf-block">' +
+        '<h3>What each paycheck covers</h3>' +
+        '<p class="step-help">This is exactly what to set up as an automatic transfer for each paycheck — one line per savings account or bill.</p>' +
+        '</div>' +
+        paycheckDetailBlocks +
         '<div class="pdf-block">' +
         '<h3>Expense Summary</h3>' +
         '<div class="table-scroll"><table class="ledger"><thead><tr><th>Expense</th><th>Amount</th></tr></thead><tbody>'+expenseSummaryHtml+'</tbody><tfoot><tr><td>Total</td><td class="num">'+fmtMoney(d.totalExpenses)+'</td></tr></tfoot></table></div>' +
